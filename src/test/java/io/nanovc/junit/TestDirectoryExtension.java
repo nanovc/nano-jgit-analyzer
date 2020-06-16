@@ -269,41 +269,53 @@ public class TestDirectoryExtension implements BeforeAllCallback, BeforeEachCall
             path = path.resolve(testMethod.getName());
         }
 
-        // Keep a reference to the test path because we re-use it later:
-        Path testPath = path;
-
-        // Check whether we have a custom name:
-        String customName = annotation.name();
-        String folderName;
-        if (customName.isEmpty())
+        // Check whether we should just use the test as the name:
+        if (!annotation.useTestName())
         {
-            // We don't have a custom name for this test directory.
+            // We mustn't use the test name,
+            // but rather get the name from the field or parameter that the annotation was put on.
 
-            // Use the target field name as the folder name:
-            folderName = targetFieldName;
+            // Keep a reference to the test path because we re-use it later:
+            Path testPath = path;
+
+            // Check whether we have a custom name:
+            String customName = annotation.name();
+            String folderName;
+            if (customName.isEmpty())
+            {
+                // We don't have a custom name for this test directory.
+
+                // Use the target field name as the folder name:
+                folderName = targetFieldName;
+            }
+            else
+            {
+                // We have a custom name for this test directory.
+
+                // Use the custom name as the folder name:
+                folderName = customName;
+            }
+
+            // Add the folder name:
+            path = path.resolve(folderName);
+
+            // Get the path store for this extension so that we can reference count the unique paths:
+            ExtensionContext.Store pathStore = extensionContext.getStore(PATH_NAMESPACE);
+
+            // Get or create the count entry for this path:
+            AtomicInteger nextPathCount = pathStore.getOrComputeIfAbsent(path.toString(), key -> new AtomicInteger(), AtomicInteger.class);
+
+            // Get the next count value for this path:
+            int instanceCount = nextPathCount.getAndIncrement();
+
+            // Build the path that we want with the instance count:
+            if (instanceCount > 0) path = testPath.resolve(folderName + '-' + instanceCount);
         }
-        else
-        {
-            // We have a custom name for this test directory.
-
-            // Use the custom name as the folder name:
-            folderName = customName;
-        }
-
-        // Add the folder name:
-        path = path.resolve(folderName);
-
-        // Get the path store for this extension so that we can reference count the unique paths:
-        ExtensionContext.Store pathStore = extensionContext.getStore(PATH_NAMESPACE);
-
-        // Get or create the count entry for this path:
-        AtomicInteger nextPathCount = pathStore.getOrComputeIfAbsent(path.toString(), key -> new AtomicInteger(), AtomicInteger.class);
-
-        // Get the next count value for this path:
-        int instanceCount = nextPathCount.getAndIncrement();
-
-        // Build the path that we want with the instance count:
-        if (instanceCount > 0) path = testPath.resolve(folderName + '-' + instanceCount);
+        // else
+        // {
+        //     // We must use the test name as the directory.
+        //     // NOTE: This mode will reuse the same folder for each annotation that asks for this.
+        // }
 
         // Now we have the path that we want.
 
