@@ -78,7 +78,6 @@ public class AnalysisTests
             //     .all();
             // Iterable<RevCommit> revCommits = logCommand.call();
 
-
             try (RevWalk revWalk = new RevWalk(repository))
             {
                 // Get the object reader that we are using for this revision walk:
@@ -87,9 +86,18 @@ public class AnalysisTests
                 // Get all the references for this repository:
                 List<Ref> allRefs = repository.getRefDatabase().getRefs();
 
+                // Keep a map of original refs to the actual refs that we ended up using after peeling:
+                Map<Ref, Ref> originalRefToActualRefMap = new HashMap<>();
+
+                // Keep a map of revCommits to the original ref that was used to get it:
+                Map<RevCommit, Ref> revCommitToOriginalRefMap = new HashMap<>();
+
                 // Go through each references and make sure that we walk it:
-                for (Ref ref : allRefs)
+                for (Ref originalRef : allRefs)
                 {
+                    // Start with the original ref:
+                    Ref ref = originalRef;
+
                     // Check whether the reference is peeled (annotated tags).
                     if(!ref.isPeeled())
                     {
@@ -101,7 +109,9 @@ public class AnalysisTests
                     // Get the objectID for this reference:
                     ObjectId objectId = ref.getPeeledObjectId();
                     if (objectId == null)
+                    {
                         objectId = ref.getObjectId();
+                    }
 
                     // Try to get the revision commit:
                     RevCommit revCommit = null;
@@ -121,6 +131,10 @@ public class AnalysisTests
                     {
                         // Add this commit as a starting point for our revision walk:
                         revWalk.markStart(revCommit);
+
+                        // Save the mappings:
+                        revCommitToOriginalRefMap.put(revCommit, originalRef);
+                        originalRefToActualRefMap.put(originalRef, ref);
                     }
                 }
                 // Now we have all the references marked as starting points for the revision walk.
@@ -251,8 +265,84 @@ public class AnalysisTests
                     // System.out.println("Checking out done!");
 
                 }
-            }
+                // Now we have processed each commit.
 
+
+                // Update the branch references for the repo:
+                List<Ref> branchList = git.branchList().call();
+
+                // Go through each branch and create it in our memory repo:
+                for (Ref branchRef : branchList)
+                {
+                    // Start with the original ref:
+                    Ref ref = branchRef;
+
+                    // Check whether the reference is peeled (annotated tags).
+                    if(!ref.isPeeled())
+                    {
+                        // The reference is not peeled.
+                        // Peel the reference:
+                        ref = repository.getRefDatabase().peel(ref);
+                    }
+
+                    // Get the objectID for this reference:
+                    ObjectId objectId = ref.getPeeledObjectId();
+                    if (objectId == null)
+                    {
+                        objectId = ref.getObjectId();
+                    }
+
+                    // Get the commit hash:
+                    String commitHash = objectId.getName();
+
+                    // Get the revCommit for this ref:
+                    MemoryCommit memoryCommit = commitsByCommitHash.get(commitHash);
+
+                    // Get the branch name:
+                    String branchName = Repository.shortenRefName(branchRef.getName());
+
+                    // Create the branch for this commit:
+                    nanoRepo.createBranchAtCommit(memoryCommit, branchName);
+                }
+
+
+                // Update the tag references for the repo:
+                List<Ref> tagList = git.tagList().call();
+
+                // Go through each tag and create it in our memory repo:
+                for (Ref branchRef : tagList)
+                {
+                    // Start with the original ref:
+                    Ref ref = branchRef;
+
+                    // Check whether the reference is peeled (annotated tags).
+                    if(!ref.isPeeled())
+                    {
+                        // The reference is not peeled.
+                        // Peel the reference:
+                        ref = repository.getRefDatabase().peel(ref);
+                    }
+
+                    // Get the objectID for this reference:
+                    ObjectId objectId = ref.getPeeledObjectId();
+                    if (objectId == null)
+                    {
+                        objectId = ref.getObjectId();
+                    }
+
+                    // Get the commit hash:
+                    String commitHash = objectId.getName();
+
+                    // Get the revCommit for this ref:
+                    MemoryCommit memoryCommit = commitsByCommitHash.get(commitHash);
+
+                    // Get the tag name:
+                    String tagName = Repository.shortenRefName(branchRef.getName());
+
+                    // Create the tag for this commit:
+                    nanoRepo.tagCommit(memoryCommit, tagName);
+                }
+            }
         }
 
         // Search the repo:
