@@ -84,12 +84,14 @@ public class KryoTests
 
         // Create the serializer:
         Kryo kryo = new Kryo();
-        kryo.register(List.class);
+        kryo.register(byte[].class);
+        kryo.register(MemoryCommit[].class);
         kryo.register(ByteArrayContent.class, new ByteArrayContentSerializer());
         kryo.register(ByteArrayHashMapArea.class, new ByteArrayHashMapAreaSerializer());
         kryo.register(MemoryCommit.class, new MemoryCommitSerializer());
         kryo.register(MemoryRepo.class, new MemoryRepoSerializer<ByteArrayContent, ByteArrayHashMapArea>());
         kryo.setReferences(true); // References to the same objects (specifically byte arrays for commits) will be referenced.
+        kryo.setCopyReferences(false);
 
         // Serialize the repo:
         try(Output output = new Output(new FileOutputStream(testDirectory.resolve("file.bin").toFile())))
@@ -122,13 +124,15 @@ public class KryoTests
 
         // Create the serializer:
         Kryo kryo = new Kryo();
-        kryo.register(List.class);
+        kryo.register(byte[].class);
+        kryo.register(MemoryCommit[].class);
         kryo.register(ByteArrayContent.class, new ByteArrayContentSerializer());
         kryo.register(ByteArrayHashMapArea.class, new ByteArrayHashMapAreaSerializer());
         kryo.register(MemoryCommit.class, new MemoryCommitSerializer());
         kryo.register(MemoryRepo.class, new MemoryRepoSerializer<ByteArrayContent, ByteArrayHashMapArea>());
         kryo.register(MemoryNanoRepo.class, new MemoryRepoSerializer<ByteArrayContent, ByteArrayHashMapArea>());
         kryo.setReferences(true); // References to the same objects (specifically byte arrays for commits) will be referenced.
+        kryo.setCopyReferences(false);
 
         // Serialize the repo:
         try(Output output = new Output(new FileOutputStream(testDirectory.resolve("file.bin").toFile())))
@@ -288,7 +292,7 @@ public class KryoTests
             output.writeVarLong(object.timestamp.getInstant().toEpochMilli(), true);
             kryo.writeObject(output, object.snapshot);
             kryo.writeObjectOrNull(output, object.firstParent, MemoryCommit.class);
-            kryo.writeObjectOrNull(output, object.otherParents, List.class);
+            kryo.writeObjectOrNull(output, object.otherParents == null ? null : object.otherParents.toArray(), MemoryCommit[].class);
         }
 
         /**
@@ -309,14 +313,14 @@ public class KryoTests
             long timestampEpochMillis = input.readVarLong(true);
             ByteArrayArea snapshot = kryo.readObject(input, ByteArrayHashMapArea.class);
             MemoryCommit firstParent = kryo.readObjectOrNull(input, MemoryCommit.class);
-            List<MemoryCommit> otherParents = kryo.readObjectOrNull(input, List.class);
+            MemoryCommit[] memoryCommits = kryo.readObjectOrNull(input, MemoryCommit[].class);
 
             MemoryCommit memoryCommit = new MemoryCommit();
             memoryCommit.message = message;
             memoryCommit.timestamp = new InstantTimestamp(Instant.ofEpochMilli(timestampEpochMillis));
             memoryCommit.snapshot = snapshot;
             memoryCommit.firstParent = firstParent;
-            memoryCommit.otherParents = otherParents;
+            memoryCommit.otherParents = memoryCommits == null ? null : Arrays.asList(memoryCommits);
             return memoryCommit;
         }
     }
@@ -399,11 +403,8 @@ public class KryoTests
          */
         @Override public void write(Kryo kryo, Output output, ByteArrayContent object)
         {
-            // Write the number of bytes:
-            output.writeVarInt(object.bytes.length, true);
-
-            // Write the bytes:
-            output.write(object.bytes);
+            // Write the bytes, allowing Kryo to reuse references:
+            kryo.writeObject(output, object.bytes);
         }
 
         /**
@@ -420,11 +421,8 @@ public class KryoTests
          */
         @Override public ByteArrayContent read(Kryo kryo, Input input, Class<? extends ByteArrayContent> type)
         {
-            // Read the number of bytes:
-            int byteCount = input.readVarInt(true);
-
-            // Read the bytes:
-            byte[] bytes = input.readBytes(byteCount);
+            // Read the bytes, allowing kryo to resolve references:
+            byte[] bytes = kryo.readObject(input, byte[].class);
 
             // Create the byte array content:
             return new ByteArrayContent(bytes);
