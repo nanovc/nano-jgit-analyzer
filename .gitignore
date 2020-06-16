@@ -41,3 +41,6 @@ gradle.properties
 
 # GPG Keys for Maven Central Publishing:
 /gpg/
+
+# Test Output
+/test-output/**
