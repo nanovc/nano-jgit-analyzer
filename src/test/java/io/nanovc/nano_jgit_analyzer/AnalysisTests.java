@@ -1,5 +1,6 @@
 package io.nanovc.nano_jgit_analyzer;
 
+import io.nanovc.Clock;
 import io.nanovc.areas.ByteArrayHashMapArea;
 import io.nanovc.junit.TestDirectory;
 import io.nanovc.junit.TestDirectoryExtension;
@@ -9,6 +10,7 @@ import io.nanovc.memory.MemorySearchResults;
 import io.nanovc.searches.commits.SimpleSearchQueryDefinition;
 import io.nanovc.searches.commits.expressions.AllRepoCommitsExpression;
 import io.nanovc.searches.commits.expressions.TipOfExpression;
+import io.nanovc.timestamps.InstantTimestamp;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
@@ -24,7 +26,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @ExtendWith(TestDirectoryExtension.class)
 public class AnalysisTests
@@ -37,8 +43,21 @@ public class AnalysisTests
     @Test
     public void testAnalysis(@TestDirectory(useTestName = true) Path testPath) throws GitAPIException, IOException
     {
+        // Create a simulated clock so that we can override timestamps for commits:
+        SimulatedInstantClock clock = new SimulatedInstantClock();
+
         // Create the nano repo where we will load the entire Git repo:
-        MemoryNanoRepo nanoRepo = new MemoryNanoRepo();
+        MemoryNanoRepo nanoRepo = new MemoryNanoRepo(
+            null,
+            MemoryNanoRepo.COMMON_ENGINE,
+            clock,
+            MemoryNanoRepo.COMMON_DIFFERENCE_HANDLER,
+            MemoryNanoRepo.COMMON_COMPARISON_HANDLER,
+            MemoryNanoRepo.COMMON_MERGE_HANDLER
+        );
+
+        // Keep a map of hashes to commits so that we can recreate our parentage correctly:
+        Map<String, MemoryCommit> commitsByCommitHash = new HashMap<>();
 
         try (
             Git git = Git.cloneRepository()
@@ -157,8 +176,70 @@ public class AnalysisTests
                     }
                     // Now we have walked the entire tree of paths for this commit.
 
+                    // Search for all parent commits:
+                    MemoryCommit firstParentCommit = null;
+                    List<MemoryCommit> otherParentCommits = null;
+                    for (RevCommit revCommitParent : revCommit.getParents())
+                    {
+                        // Resolve the memory commit for this revCommit:
+                        // NOTE: Our revWalk sort order means that we get commits from oldest to newest.
+                        MemoryCommit memoryCommit = commitsByCommitHash.get(revCommitParent.getName());
+
+                        // Check whether we have our first parent commit yet:
+                        if (firstParentCommit == null)
+                        {
+                            // This is our first parent commit.
+
+                            // Set this as our first parent commit:
+                            firstParentCommit = memoryCommit;
+                        }
+                        else
+                        {
+                            // This is not our first parent commit.
+
+                            // Check whether this is our second parent commit:
+                            if (otherParentCommits == null)
+                            {
+                                // This is our second parent commit.
+                                // Create the list of other parent commits:
+                                otherParentCommits = new ArrayList<>();
+                            }
+
+                            // Add this commit to the list of other parent commits:
+                            otherParentCommits.add(memoryCommit);
+                        }
+                    }
+                    // Now we have all of our parent commits resolved.
+
+
+                    // Override the commit timestamp:
+                    // It appears that the commits are the number of seconds from the Epoch.
+                    // At first we thought it uses the millis because the implementation uses System.currentTimeMillis(). Strange.
+                    // The difference, measured in milliseconds, between the current time and midnight, January 1, 1970 UTC.
+                    clock.nowOverride = Instant.ofEpochSecond(revCommit.getCommitTime());
+
                     // Commit the content area to nano version control:
-                    MemoryCommit memoryCommit = nanoRepo.commit(contentArea, revCommit.getFullMessage());
+                    // NOTE: We separate the API into different scenarios for performance.
+                    MemoryCommit memoryCommit;
+                    if (firstParentCommit == null)
+                    {
+                        memoryCommit = nanoRepo.commit(contentArea, revCommit.getFullMessage());
+                    }
+                    else
+                    {
+                        if (otherParentCommits == null)
+                        {
+                            memoryCommit = nanoRepo.commit(contentArea, revCommit.getFullMessage(), firstParentCommit);
+                        }
+                        else
+                        {
+                            memoryCommit = nanoRepo.commit(contentArea, revCommit.getFullMessage(), firstParentCommit, otherParentCommits);
+                        }
+                    }
+                    // Now we have committed the content area with its parent commit information.
+
+                    // Save this commit to our map for easy lookup by commit hash:
+                    commitsByCommitHash.put(revCommit.getName(), memoryCommit);
 
                     // Checkout the revision:
                     // System.out.println("Checking out...");
@@ -181,6 +262,27 @@ public class AnalysisTests
         {
             ByteArrayHashMapArea checkout = nanoRepo.checkout(commit);
             System.out.println(checkout.asListString());
+        }
+    }
+
+    /**
+     * This is a simulated clock that allows us to override timestamps.
+     */
+    static class SimulatedInstantClock extends Clock<InstantTimestamp>
+    {
+        /**
+         * The override value to use for the current instant in time.
+         */
+        public Instant nowOverride = Instant.now();
+
+        /**
+         * Creates a timestamp for the current instant in time.
+         *
+         * @return A new timestamp for the current instant in time.
+         */
+        @Override public InstantTimestamp now()
+        {
+            return new InstantTimestamp(this.nowOverride);
         }
     }
 
