@@ -4,19 +4,15 @@ import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.Serializer;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
-import io.nanovc.Area;
-import io.nanovc.AreaEntry;
-import io.nanovc.Content;
-import io.nanovc.RepoPath;
+import io.nanovc.*;
 import io.nanovc.areas.ByteArrayArea;
 import io.nanovc.areas.ByteArrayHashMapArea;
 import io.nanovc.content.ByteArrayContent;
 import io.nanovc.junit.TestDirectory;
 import io.nanovc.junit.TestDirectoryExtension;
-import io.nanovc.memory.MemoryCommit;
-import io.nanovc.memory.MemoryNanoRepo;
-import io.nanovc.memory.MemoryRepo;
-import io.nanovc.memory.MemoryRepoHandler;
+import io.nanovc.memory.*;
+import io.nanovc.searches.commits.SimpleSearchQueryDefinition;
+import io.nanovc.searches.commits.expressions.AllRepoCommitsExpression;
 import io.nanovc.timestamps.InstantTimestamp;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.junit.jupiter.api.Test;
@@ -27,12 +23,16 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 
 /**
  * This tests the excellent Kryo Serialization framework.
@@ -72,9 +72,11 @@ public class KryoTests
 
 
     @Test
-    public void serializeNanoRepo(@TestDirectory(useTestName = true) Path testDirectory) throws FileNotFoundException
+    public void serializeNanoRepo(@TestDirectory(useTestName = true) Path testDirectory) throws IOException
     {
         // Create the memory repo (as a handler, because we want to serialize only the repo state, not the handler dependencies):
+        // NOTE: This is the alternative way of using repo's (which contain just the state).
+        //       The MemoryNanoRepo is an Object Oriented convenience API for repo's.
         MemoryRepoHandler<ByteArrayContent, ByteArrayHashMapArea> repoHandler = new MemoryRepoHandler<>(ByteArrayContent::new, ByteArrayHashMapArea::new);
         ByteArrayHashMapArea contentArea = repoHandler.createArea();
         contentArea.putBytes("/readme.txt", "Hello World!".getBytes(StandardCharsets.UTF_8));
@@ -82,51 +84,81 @@ public class KryoTests
         contentArea.putBytes("/more.txt", "More!".getBytes(StandardCharsets.UTF_8));
         repoHandler.commitToBranch(contentArea, "second", "Second Commit");
 
-        // Create the serializer:
-        Kryo kryo = new Kryo();
-        kryo.register(byte[].class);
-        kryo.register(MemoryCommit[].class);
-        kryo.register(ByteArrayContent.class, new ByteArrayContentSerializer());
-        kryo.register(ByteArrayHashMapArea.class, new ByteArrayHashMapAreaSerializer());
-        kryo.register(MemoryCommit.class, new MemoryCommitSerializer());
-        kryo.register(MemoryRepo.class, new MemoryRepoSerializer<ByteArrayContent, ByteArrayHashMapArea>());
-        kryo.setReferences(true); // References to the same objects (specifically byte arrays for commits) will be referenced.
-        kryo.setCopyReferences(false);
+        // Save the branch names so we can compare later:
+        Set<String> branchNamesBeforeSave = repoHandler.getBranchNames();
 
-        // Serialize the repo:
-        try(Output output = new Output(new FileOutputStream(testDirectory.resolve("file.bin").toFile())))
+        // Round trip the repo to disk and back:
+        MemoryRepo<ByteArrayContent, ByteArrayHashMapArea> repoFromDisk = roundTripNanoRepo(testDirectory.resolve("repo.kryo.bin"), repoHandler.getRepo());
+
+        // Use the new repo for the handler:
+        repoHandler.setRepo(repoFromDisk);
+
+        // Check out the commits:
+        Set<String> branchNamesAfterSave = repoHandler.getBranchNames();
+        for (String branchName : branchNamesAfterSave)
         {
-            kryo.writeObject(output, repoHandler.getRepo());
+            // Get the commit for the branch:
+            ByteArrayHashMapArea checkout = repoHandler.checkout(repoHandler.getLatestCommitForBranch(branchName));
         }
 
-        // Deserialize the repo:
-        try (Input input = new Input(new FileInputStream(testDirectory.resolve("file.bin").toFile())))
-        {
-            MemoryRepo<ByteArrayContent, ByteArrayHashMapArea> repoFromDisk = kryo.readObject(input, MemoryRepo.class);
+        // Make sure that the branch names match:
+        assertIterableEquals(branchNamesBeforeSave, branchNamesAfterSave);
 
-            // Use the repo for the handler:
-            repoHandler.setRepo(repoFromDisk);
-
-            // Check out the commits:
-            Set<String> branchNames = repoHandler.getBranchNames();
-            for (String branchName : branchNames)
-            {
-                // Get the commit for the branch:
-                ByteArrayHashMapArea checkout = repoHandler.checkout(repoHandler.getLatestCommitForBranch(branchName));
-            }
-        }
+        // Assert that the repo is as expected:
+        assertNanoRepo(repoFromDisk);
     }
 
     @Test
     public void serializeHugeNanoRepo(@TestDirectory(useTestName = true) Path testDirectory) throws IOException, GitAPIException
     {
-        MemoryNanoRepo nanoRepo = NanoJGitAnalyzer.createNanoRepoFromGitFilePath(Paths.get("/PATH/ToHuge/Repo"));
+        // Define timing variables:
+        long nanoStart, nanoEnd, nanoDuration;
+
+        // Set this to a repo that you already have checked out on disk:
+        Path pathToHugeExistingGitRepoOnDisk = Paths.get("C:\\Mach\\Source\\PietersMSc2019");
+
+        // Start timing:
+        nanoStart = System.nanoTime();
+
+        // Create a Nano Repo from the one on disk:
+        MemoryNanoRepo nanoRepo = NanoJGitAnalyzer.createNanoRepoFromGitFilePath(pathToHugeExistingGitRepoOnDisk);
+
+        // Count the total number of commits in the repo:
+        int totalCommits = nanoRepo.search(new SimpleSearchQueryDefinition(null, AllRepoCommitsExpression.allRepoCommits(), null)).getCommits().size();
+
+        // End timing:
+        nanoEnd = System.nanoTime();
+        nanoDuration = nanoEnd - nanoStart;
+
+        System.out.println("*** READING ***");
+        System.out.printf("Loading JGit Repo from '%s'%n", pathToHugeExistingGitRepoOnDisk.toString());
+        System.out.printf("Duration: %,dns = %,dms%n", nanoDuration, nanoDuration / 1000_000L);
+        System.out.printf("Rate: %,d commits/sec%n", totalCommits * 1000_000_000L / nanoDuration);
+        System.out.println();
+
+        // Round trip the repo to disk:
+        MemoryRepo<ByteArrayContent, ByteArrayHashMapArea> repoFromDisk = roundTripNanoRepo(testDirectory.resolve("file.bin"), nanoRepo);
+
+        // Assert details about the repo:
+        assertNanoRepo(repoFromDisk);
+    }
+
+    /**
+     * This round-trips the given repo by writing it to disk and then loading it up again.
+     * @param pathToWriteTo The path of the file to write to.
+     * @param repoToWrite The repo to write.
+     * @return The deserialized repo that was round-tripped to disk.
+     * @throws FileNotFoundException
+     */
+    public MemoryRepo<ByteArrayContent, ByteArrayHashMapArea> roundTripNanoRepo(Path pathToWriteTo, MemoryRepo<ByteArrayContent, ByteArrayHashMapArea> repoToWrite) throws IOException
+    {
+        // Define timing variables:
+        long nanoStart, nanoEnd, nanoDuration;
 
         // Create the serializer:
         Kryo kryo = new Kryo();
         kryo.register(byte[].class);
         kryo.register(MemoryCommit[].class);
-        kryo.register(ByteArrayContent.class, new ByteArrayContentSerializer());
         kryo.register(ByteArrayHashMapArea.class, new ByteArrayHashMapAreaSerializer());
         kryo.register(MemoryCommit.class, new MemoryCommitSerializer());
         kryo.register(MemoryRepo.class, new MemoryRepoSerializer<ByteArrayContent, ByteArrayHashMapArea>());
@@ -134,30 +166,111 @@ public class KryoTests
         kryo.setReferences(true); // References to the same objects (specifically byte arrays for commits) will be referenced.
         kryo.setCopyReferences(false);
 
+        // Start timing:
+        nanoStart = System.nanoTime();
+
         // Serialize the repo:
-        try(Output output = new Output(new FileOutputStream(testDirectory.resolve("file.bin").toFile())))
+        try(Output output = new Output(new FileOutputStream(pathToWriteTo.toFile())))
         {
-            kryo.writeObject(output, nanoRepo);
+            kryo.writeObject(output, repoToWrite);
         }
+
+        // End timing:
+        nanoEnd = System.nanoTime();
+        nanoDuration = nanoEnd - nanoStart;
+
+        // Get the size of the saved repo:
+        long totalBytes = Files.size(pathToWriteTo);
+
+        System.out.println("*** SAVING ***");
+        System.out.printf("Saving Repo to '%s'%n", pathToWriteTo.toString());
+        System.out.printf("Total Bytes: %,d%n", totalBytes);
+        System.out.printf("Duration: %,dns = %,dms%n", nanoDuration, nanoDuration / 1000_000L);
+        System.out.printf("Throughput: %,d B/sec%n", totalBytes * 1000_000_000L / nanoDuration);
+        System.out.println();
+
+        // Start timing:
+        nanoStart = System.nanoTime();
 
         // Deserialize the repo:
-        try (Input input = new Input(new FileInputStream(testDirectory.resolve("file.bin").toFile())))
+        try (Input input = new Input(new FileInputStream(pathToWriteTo.toFile())))
         {
-            MemoryRepoHandler<ByteArrayContent, ByteArrayHashMapArea> repoHandler = new MemoryRepoHandler<>(ByteArrayContent::new, ByteArrayHashMapArea::new);
-
             MemoryRepo<ByteArrayContent, ByteArrayHashMapArea> repoFromDisk = kryo.readObject(input, MemoryRepo.class);
 
-            // Use the repo for the handler:
-            repoHandler.setRepo(repoFromDisk);
+            // End timing:
+            nanoEnd = System.nanoTime();
+            nanoDuration = nanoEnd - nanoStart;
 
-            // Check out the commits:
-            Set<String> branchNames = repoHandler.getBranchNames();
-            for (String branchName : branchNames)
-            {
-                // Get the commit for the branch:
-                ByteArrayHashMapArea checkout = repoHandler.checkout(repoHandler.getLatestCommitForBranch(branchName));
-            }
+            System.out.println("*** LOADING ***");
+            System.out.printf("Loading Repo from '%s'%n", pathToWriteTo.toString());
+            System.out.printf("Total Bytes: %,d%n", totalBytes);
+            System.out.printf("Duration: %,dns = %,dms%n", nanoDuration, nanoDuration / 1000_000L);
+            System.out.printf("Throughput: %,d B/sec%n", totalBytes * 1000_000_000L / nanoDuration);
+            System.out.println();
+
+            return repoFromDisk;
         }
+    }
+
+    /**
+     * This makes sure that the given repo is as expected.
+     * It also performs timing against the repo.
+     * @param repo The repo to analyze.
+     */
+    public void assertNanoRepo(MemoryRepo<ByteArrayContent, ByteArrayHashMapArea> repo)
+    {
+        // Define timing variables:
+        long nanoStart, nanoEnd, nanoDuration;
+
+        // Keep track of the total content that is processed:
+        long totalBytesOfContent = 0L;
+        int totalCommits = 0;
+
+        // Create a handler so we can understand the deserialized repo:
+        // NOTE: This is the alternative way of using repo's (which contain just the state).
+        //       The MemoryNanoRepo is an Object Oriented convenience API for repo's.
+        MemoryRepoHandler<ByteArrayContent, ByteArrayHashMapArea> repoHandler = new MemoryRepoHandler<>(ByteArrayContent::new, ByteArrayHashMapArea::new);
+
+        // Use the repo for the handler:
+        repoHandler.setRepo(repo);
+
+        // Get all the commits:
+        SearchQueryDefinition searchQueryDefinition = new SimpleSearchQueryDefinition(null, AllRepoCommitsExpression.allRepoCommits(), null);
+        MemorySearchResults searchResults = repoHandler.search(searchQueryDefinition);
+
+        // Start timing:
+        nanoStart = System.nanoTime();
+
+        // Go through each commit:
+        for (MemoryCommit commit : searchResults.getCommits())
+        {
+            // Check out the commit:
+            ByteArrayHashMapArea contentArea = repoHandler.checkout(commit);
+
+            // Go through each piece of content to accumulate the size:
+            for (Map.Entry<String, ByteArrayContent> entry : contentArea.entrySet())
+            {
+                // Accumulate the byte size:
+                totalBytesOfContent += entry.getValue().bytes.length;
+            }
+
+            // Accumulate stats:
+            totalCommits++;
+        }
+
+
+        // End timing:
+        nanoEnd = System.nanoTime();
+        nanoDuration = nanoEnd - nanoStart;
+
+        System.out.println("*** CHECKOUT ***");
+        System.out.println("Checking out each commit:");
+        System.out.printf("Total Commits: %,d%n", totalCommits);
+        System.out.printf("Total Bytes of Content: %,d%n", totalBytesOfContent);
+        System.out.printf("Duration: %,dns = %,dms%n", nanoDuration, nanoDuration / 1000_000L);
+        System.out.printf("Rate: %,d commits/sec%n", totalCommits * 1000_000_000L / nanoDuration);
+        System.out.printf("Throughput: %,d B/sec%n", totalBytesOfContent * 1000_000_000L / nanoDuration);
+        System.out.println();
     }
 
     public static class MemoryRepoSerializer <TContent extends Content, TArea extends Area<TContent>> extends Serializer<MemoryRepo<TContent, TArea>>
@@ -346,10 +459,11 @@ public class KryoTests
             for (AreaEntry<ByteArrayContent> areaEntry : object)
             {
                 // Write the path:
-                output.writeString(areaEntry.path.path);
+                // NOTE: We allow kryo to reference paths that we have written before to save space:
+                kryo.writeObject(output, areaEntry.path.path);
 
                 // Write the content:
-                kryo.writeObject(output, areaEntry.content);
+                kryo.writeObject(output, areaEntry.content.bytes);
             }
         }
 
@@ -377,55 +491,20 @@ public class KryoTests
             for (int i = 0; i < entryCount; i++)
             {
                 // Read the path:
-                String path = input.readString();
+                // NOTE: We allow Kryo to resolve references to paths to save space.
+                String path = kryo.readObject(input, String.class);
 
-                // Read the content:
-                ByteArrayContent content = kryo.readObject(input, ByteArrayContent.class);
+                // Read the bytes for the content, allowing kryo to resolve references:
+                byte[] bytes = kryo.readObject(input, byte[].class);
+
+                // Create the content:
+                ByteArrayContent content = new ByteArrayContent(bytes);
 
                 // Create the entry:
                 contentArea.putContent(RepoPath.at(path), content);
             }
 
             return contentArea;
-        }
-    }
-
-    public static class ByteArrayContentSerializer extends Serializer<ByteArrayContent>
-    {
-
-        /**
-         * Writes the bytes for the object to the output.
-         * <p>
-         * This method should not be called directly, instead this serializer can be passed to {@link Kryo} write methods that accept a
-         * serialier.
-         *
-         * @param object May be null if {@link #getAcceptsNull()} is true.
-         */
-        @Override public void write(Kryo kryo, Output output, ByteArrayContent object)
-        {
-            // Write the bytes, allowing Kryo to reuse references:
-            kryo.writeObject(output, object.bytes);
-        }
-
-        /**
-         * Reads bytes and returns a new object of the specified concrete type.
-         * <p>
-         * Before Kryo can be used to read child objects, {@link Kryo#reference(Object)} must be called with the parent object to
-         * ensure it can be referenced by the child objects. Any serializer that uses {@link Kryo} to read a child object may need to
-         * be reentrant.
-         * <p>
-         * This method should not be called directly, instead this serializer can be passed to {@link Kryo} read methods that accept a
-         * serialier.
-         *
-         * @return May be null if {@link #getAcceptsNull()} is true.
-         */
-        @Override public ByteArrayContent read(Kryo kryo, Input input, Class<? extends ByteArrayContent> type)
-        {
-            // Read the bytes, allowing kryo to resolve references:
-            byte[] bytes = kryo.readObject(input, byte[].class);
-
-            // Create the byte array content:
-            return new ByteArrayContent(bytes);
         }
     }
 
