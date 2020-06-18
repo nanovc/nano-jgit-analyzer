@@ -22,6 +22,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -205,7 +206,7 @@ public class KryoTests
             System.out.printf("Loading Repo from '%s'%n", pathToWriteTo.toString());
             System.out.printf("Total Bytes: %,d%n", totalBytes);
             System.out.printf("Duration: %,dns = %,dms%n", nanoDuration, nanoDuration / 1000_000L);
-            System.out.printf("Throughput: %,d B/sec%n", totalBytes * 1000_000_000L / nanoDuration);
+            System.out.printf("Throughput: %,d B/sec%n", totalBytes * 1_000_000_000L / nanoDuration);
             System.out.println();
 
             return repoFromDisk;
@@ -268,8 +269,9 @@ public class KryoTests
         System.out.printf("Total Commits: %,d%n", totalCommits);
         System.out.printf("Total Bytes of Content: %,d%n", totalBytesOfContent);
         System.out.printf("Duration: %,dns = %,dms%n", nanoDuration, nanoDuration / 1000_000L);
-        System.out.printf("Rate: %,d commits/sec%n", totalCommits * 1000_000_000L / nanoDuration);
-        System.out.printf("Throughput: %,d B/sec%n", totalBytesOfContent * 1000_000_000L / nanoDuration);
+        System.out.printf("Rate: %,d commits/sec%n", totalCommits * 1_000_000_000L / nanoDuration);
+        BigInteger bigThroughput = BigInteger.valueOf(totalBytesOfContent).multiply(BigInteger.valueOf(1_000_000_000L)).divide(BigInteger.valueOf(nanoDuration));
+        System.out.printf("Throughput: %,d B/sec = %,d MB/s%n", bigThroughput, bigThroughput.divide(BigInteger.valueOf(1024)).divide(BigInteger.valueOf(1024)));
         System.out.println();
     }
 
