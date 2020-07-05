@@ -1,16 +1,29 @@
 package io.nanovc.nano_jgit_analyzer;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.nanovc.CommitTags;
-import io.nanovc.areas.StringHashMapArea;
+import io.nanovc.TimestampAPI;
+import io.nanovc.areas.*;
+import io.nanovc.content.ByteArrayContent;
+import io.nanovc.content.StringContent;
 import io.nanovc.junit.TestDirectory;
 import io.nanovc.junit.TestDirectoryExtension;
 import io.nanovc.memory.MemoryCommit;
+import io.nanovc.memory.strings.StringMemoryRepo;
 import io.nanovc.memory.strings.StringMemoryRepoHandler;
+import io.nanovc.timestamps.InstantTimestamp;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -78,6 +91,7 @@ public class JacksonTests
     public static class MyValue
     {
         public String name;
+
         public int age;
         // NOTE: if using getters/setters, can keep fields `protected` or `private`
     }
@@ -103,7 +117,8 @@ public class JacksonTests
         // (note: this is NOT needed for POJO properties with List etc types):
 
         Map<String, ResultValue> results = mapper.readValue("{\"person1\": {\"name\":\"Bob\",\"age\":13} }",
-                                                            new TypeReference<Map<String, ResultValue>>() { } );
+                                                            new TypeReference<Map<String, ResultValue>>() {}
+        );
         // why extra work? Java Type Erasure will prevent type detection otherwise
 
         // (note: no extra effort needed for serialization, regardless of generic types)
@@ -143,6 +158,7 @@ public class JacksonTests
     public static class ResultValue
     {
         public String name;
+
         public int age;
         // NOTE: if using getters/setters, can keep fields `protected` or `private`
     }
@@ -164,37 +180,183 @@ public class JacksonTests
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
 
+        // Register Java 8 Types:
+        // https://github.com/FasterXML/jackson-modules-java8
+        // This is so that we handle Instant correctly.
+        objectMapper.registerModule(new JavaTimeModule());
+
+
+        SimpleModule module = new SimpleModule();
+        objectMapper.registerModule(module);
+
+        // Use mixins to provide annotations for types that we don't control directly:
+        // https://github.com/FasterXML/jackson-docs/wiki/JacksonMixInAnnotations
+        objectMapper.addMixIn(MemoryCommit.class, MemoryCommitMixin.class);
+
+        objectMapper.addMixIn(TimestampAPI.class, TimestampAPIMixin.class);
+        objectMapper.addMixIn(InstantTimestamp.class, TimestampAPIMixin.class);
+
+        objectMapper.addMixIn(ByteArrayAreaAPI.class, ByteArrayAreaAPIMixin.class);
+        objectMapper.addMixIn(ByteArrayHashMapArea.class, ByteArrayAreaAPIMixin.class);
+
+        objectMapper.addMixIn(ByteArrayContent.class, ByteArrayContentMixin.class);
+
+        objectMapper.addMixIn(StringAreaAPI.class, StringAreaAPIMixin.class);
+        objectMapper.addMixIn(StringHashMapArea.class, StringAreaAPIMixin.class);
+
+        objectMapper.addMixIn(StringLinkedHashMapArea.class, StringAreaAPIMixin.class);
+        objectMapper.addMixIn(CommitTags.class, StringAreaAPIMixin.class);
+
+        objectMapper.addMixIn(CommitTags.class, CommitTagsMixin.class);
+
+        objectMapper.addMixIn(StringContent.class, StringContentMixin.class);
+
+        //        module.addAbstractTypeMapping(TimestampAPI.class, TimestampAPISurrogate.class);
+
+
         // Get the JSON for the repo:
         String json = objectMapper.writeValueAsString(handler.getRepo());
-        assertEquals("{\n" +
-                     "  \"danglingCommits\" : [ ],\n" +
-                     "  \"branchTips\" : {\n" +
-                     "    \"master\" : {\n" +
-                     "      \"timestamp\" : {\n" +
-                     "        \"instant\" : {\n" +
-                     "          \"nano\" : 0,\n" +
-                     "          \"epochSecond\" : 1234567890\n" +
-                     "        }\n" +
-                     "      },\n" +
-                     "      \"snapshot\" : {\n" +
-                     "        \"/Hello\" : {\n" +
-                     "          \"bytes\" : \"V29ybGQ=\",\n" +
-                     "          \"efficientByteArray\" : \"V29ybGQ=\"\n" +
-                     "        }\n" +
-                     "      },\n" +
-                     "      \"firstParent\" : null,\n" +
-                     "      \"otherParents\" : null,\n" +
-                     "      \"message\" : \"First Commit\",\n" +
-                     "      \"commitTags\" : {\n" +
-                     "        \"/author\" : {\n" +
-                     "          \"value\" : \"Luke\",\n" +
-                     "          \"charset\" : \"UTF-8\",\n" +
-                     "          \"efficientByteArray\" : \"THVrZQ==\"\n" +
-                     "        }\n" +
-                     "      }\n" +
-                     "    }\n" +
-                     "  },\n" +
-                     "  \"tags\" : { }\n" +
-                     "}", json.replace(System.lineSeparator(), "\n"));
+        String expectedJSON =
+            "{\n" +
+            "  \"danglingCommits\" : [ ],\n" +
+            "  \"branchTips\" : {\n" +
+            "    \"master\" : {\n" +
+            "      \"@class\" : \"io.nanovc.memory.MemoryCommit\",\n" +
+            "      \"timestamp\" : {\n" +
+            "        \"instant\" : 1234567890.000000000\n" +
+            "      },\n" +
+            "      \"snapshot\" : {\n" +
+            "        \"/Hello\" : {\n" +
+            "          \"bytes\" : \"V29ybGQ=\"\n" +
+            "        }\n" +
+            "      },\n" +
+            "      \"firstParent\" : null,\n" +
+            "      \"otherParents\" : null,\n" +
+            "      \"message\" : \"First Commit\",\n" +
+            "      \"commitTags\" : {\n" +
+            "        \"/author\" : {\n" +
+            "          \"value\" : \"Luke\"\n" +
+            "        }\n" +
+            "      }\n" +
+            "    }\n" +
+            "  },\n" +
+            "  \"tags\" : { }\n" +
+            "}";
+        assertEquals(expectedJSON, json.replace(System.lineSeparator(), "\n"));
+
+        // Make sure that we can hydrate a repo from the JSON:
+        StringMemoryRepo repoFromJSON = objectMapper.readValue(json, StringMemoryRepo.class);
+
+        // Connect the repo to a handler:
+        handler.setRepo(repoFromJSON);
+
+        // Make sure that the repo is as expected:
+        assertEquals("First Commit", repoFromJSON.getBranchTips().get("master").message);
+    }
+
+    @JsonSerialize(as = TimestampAPISurrogate.class)
+    @JsonDeserialize(as = TimestampAPISurrogate.class)
+    public static abstract class TimestampAPIMixin
+    {
+        // @JsonUnwrapped
+        // public Instant instant;
+    }
+
+    public static class TimestampAPISurrogate extends InstantTimestamp
+    {
+        @JsonCreator // constructor can be public, private, whatever
+        public TimestampAPISurrogate(@JsonProperty("instant") Instant instant)
+        {
+            super(instant);
+        }
+    }
+
+    @JsonSerialize(as = ByteArrayAreaAPISurrogate.class)
+    @JsonDeserialize(as = ByteArrayAreaAPISurrogate.class)
+    public static abstract class ByteArrayAreaAPIMixin
+    {
+    }
+
+    public static class ByteArrayAreaAPISurrogate extends ByteArrayHashMapArea
+    {
+        @JsonCreator // constructor can be public, private, whatever
+        public ByteArrayAreaAPISurrogate()
+        {
+            super();
+        }
+    }
+
+    @JsonSerialize(as = ByteArrayContentSurrogate.class)
+    @JsonDeserialize(as = ByteArrayContentSurrogate.class)
+    public static abstract class ByteArrayContentMixin
+    {
+        @JsonIgnore
+        public abstract byte[] getEfficientByteArray();
+    }
+
+    public static class ByteArrayContentSurrogate extends ByteArrayContent
+    {
+        @JsonCreator
+        public ByteArrayContentSurrogate(@JsonProperty("bytes") byte[] bytes)
+        {
+            super(bytes);
+        }
+    }
+
+    @JsonSerialize(as = StringAreaAPISurrogate.class)
+    @JsonDeserialize(as = StringAreaAPISurrogate.class)
+    public static abstract class StringAreaAPIMixin
+    {
+    }
+
+    public static class StringAreaAPISurrogate extends StringLinkedHashMapArea
+    {
+        @JsonCreator
+        public StringAreaAPISurrogate()
+        {
+            super();
+        }
+    }
+
+
+    @JsonSerialize(as = CommitTagsSurrogate.class)
+    @JsonDeserialize(as = CommitTagsSurrogate.class)
+    public static abstract class CommitTagsMixin
+    {
+    }
+
+    public static class CommitTagsSurrogate extends CommitTags
+    {
+        @JsonCreator
+        public CommitTagsSurrogate()
+        {
+            super();
+        }
+    }
+
+    @JsonSerialize(as = StringContentSurrogate.class)
+    @JsonDeserialize(as = StringContentSurrogate.class)
+    public static abstract class StringContentMixin
+    {
+        @JsonIgnore
+        public abstract byte[] getEfficientByteArray();
+
+        @JsonIgnore
+        public abstract String getCharset();
+    }
+
+    public static class StringContentSurrogate extends StringContent
+    {
+        @JsonCreator
+        public StringContentSurrogate(@JsonProperty("value") String value)
+        {
+            super(value);
+        }
+    }
+
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS)
+    public static class MemoryCommitMixin
+    {
     }
 }
