@@ -1,6 +1,7 @@
 package io.nanovc.nano_jgit_analyzer;
 
-import io.nanovc.Clock;
+import io.nanovc.ClockBase;
+import io.nanovc.CommitTags;
 import io.nanovc.areas.ByteArrayHashMapArea;
 import io.nanovc.memory.MemoryCommit;
 import io.nanovc.memory.MemoryNanoRepo;
@@ -31,6 +32,34 @@ import java.util.Map;
  */
 public class NanoJGitAnalyzer
 {
+    /**
+     * This has the paths for git commit information.
+     */
+    public static class GitCommitTagPaths extends CommitTags.CommonPaths
+    {
+        /**
+         * This is the path to the authors name.
+         */
+        public static final String AUTHOR_NAME_PATH = AUTHOR_PATH + "/name";
+
+        /**
+         * This is the path to the authors email address.
+         */
+        public static final String AUTHOR_EMAIL_PATH = AUTHOR_PATH + "/email";
+
+        /**
+         * This is the path to commit message.
+         */
+        public static final String COMMIT_MESSAGE_PATH = "/message";
+
+        /**
+         * This is the path to the short commit message.
+         * The first line is everything up to the first pair of LFs. This is the
+         * "oneline" format, suitable for output in a single line display.
+         */
+        public static final String COMMIT_MESSAGE_SHORT_PATH = COMMIT_MESSAGE_PATH + "/short";
+    }
+
     /**
      * This creates a {@link MemoryNanoRepo} for the entire contents of the given git repo.
      * The git repo has to already be passed in and the caller is responsible for closing it appropriately.
@@ -224,22 +253,32 @@ public class NanoJGitAnalyzer
                 // The difference, measured in milliseconds, between the current time and midnight, January 1, 1970 UTC.
                 clock.nowOverride = Instant.ofEpochSecond(revCommit.getCommitTime());
 
+                // Get the commit tags:
+                PersonIdent authorIdent = revCommit.getAuthorIdent();
+                CommitTags commitTags = CommitTags
+                    .with()
+                    .and(GitCommitTagPaths.AUTHOR_NAME_PATH, authorIdent.getName())
+                    .and(GitCommitTagPaths.AUTHOR_EMAIL_PATH, authorIdent.getEmailAddress())
+                    .and(GitCommitTagPaths.COMMIT_MESSAGE_PATH, revCommit.getFullMessage())
+                    .and(GitCommitTagPaths.COMMIT_MESSAGE_SHORT_PATH, revCommit.getShortMessage())
+                    ;
+
                 // Commit the content area to nano version control:
                 // NOTE: We separate the API into different scenarios for performance.
                 MemoryCommit memoryCommit;
                 if (firstParentCommit == null)
                 {
-                    memoryCommit = nanoRepo.commit(contentArea, revCommit.getFullMessage());
+                    memoryCommit = nanoRepo.commit(contentArea, revCommit.getFullMessage(), commitTags);
                 }
                 else
                 {
                     if (otherParentCommits == null)
                     {
-                        memoryCommit = nanoRepo.commit(contentArea, revCommit.getFullMessage(), firstParentCommit);
+                        memoryCommit = nanoRepo.commit(contentArea, revCommit.getFullMessage(), commitTags, firstParentCommit);
                     }
                     else
                     {
-                        memoryCommit = nanoRepo.commit(contentArea, revCommit.getFullMessage(), firstParentCommit, otherParentCommits);
+                        memoryCommit = nanoRepo.commit(contentArea, revCommit.getFullMessage(), commitTags, firstParentCommit, otherParentCommits);
                     }
                 }
                 // Now we have committed the content area with its parent commit information.
@@ -386,7 +425,7 @@ public class NanoJGitAnalyzer
     /**
      * This is a simulated clock that allows us to override timestamps.
      */
-    static class SimulatedInstantClock extends Clock<InstantTimestamp>
+    static class SimulatedInstantClock extends ClockBase<InstantTimestamp>
     {
         /**
          * The override value to use for the current instant in time.

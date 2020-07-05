@@ -1,6 +1,6 @@
 package io.nanovc.nano_jgit_analyzer;
 
-import io.nanovc.Clock;
+import io.nanovc.ClockBase;
 import io.nanovc.areas.ByteArrayHashMapArea;
 import io.nanovc.junit.TestDirectory;
 import io.nanovc.junit.TestDirectoryExtension;
@@ -46,7 +46,7 @@ public class AnalysisTests
     /**
      * This is a simulated clock that allows us to override timestamps.
      */
-    static class SimulatedInstantClock extends Clock<InstantTimestamp>
+    static class SimulatedInstantClock extends ClockBase<InstantTimestamp>
     {
         /**
          * The override value to use for the current instant in time.

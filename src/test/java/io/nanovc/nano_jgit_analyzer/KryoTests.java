@@ -5,7 +5,7 @@ import com.esotericsoftware.kryo.Serializer;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 import io.nanovc.*;
-import io.nanovc.areas.ByteArrayArea;
+import io.nanovc.areas.ByteArrayAreaAPI;
 import io.nanovc.areas.ByteArrayHashMapArea;
 import io.nanovc.content.ByteArrayContent;
 import io.nanovc.junit.TestDirectory;
@@ -81,9 +81,9 @@ public class KryoTests
         MemoryRepoHandler<ByteArrayContent, ByteArrayHashMapArea> repoHandler = new MemoryRepoHandler<>(ByteArrayContent::new, ByteArrayHashMapArea::new);
         ByteArrayHashMapArea contentArea = repoHandler.createArea();
         contentArea.putBytes("/readme.txt", "Hello World!".getBytes(StandardCharsets.UTF_8));
-        repoHandler.commitToBranch(contentArea, "first", "First Commit");
+        repoHandler.commitToBranch(contentArea, "first", "First Commit", CommitTags.none());
         contentArea.putBytes("/more.txt", "More!".getBytes(StandardCharsets.UTF_8));
-        repoHandler.commitToBranch(contentArea, "second", "Second Commit");
+        repoHandler.commitToBranch(contentArea, "second", "Second Commit", CommitTags.none());
 
         // Save the branch names so we can compare later:
         Set<String> branchNamesBeforeSave = repoHandler.getBranchNames();
@@ -236,7 +236,7 @@ public class KryoTests
         repoHandler.setRepo(repo);
 
         // Get all the commits:
-        SearchQueryDefinition searchQueryDefinition = new SimpleSearchQueryDefinition(null, AllRepoCommitsExpression.allRepoCommits(), null);
+        SearchQueryDefinitionAPI searchQueryDefinition = new SimpleSearchQueryDefinition(null, AllRepoCommitsExpression.allRepoCommits(), null);
         MemorySearchResults searchResults = repoHandler.search(searchQueryDefinition);
 
         // Start timing:
@@ -275,7 +275,7 @@ public class KryoTests
         System.out.println();
     }
 
-    public static class MemoryRepoSerializer <TContent extends Content, TArea extends Area<TContent>> extends Serializer<MemoryRepo<TContent, TArea>>
+    public static class MemoryRepoSerializer <TContent extends ContentAPI, TArea extends AreaAPI<TContent>> extends Serializer<MemoryRepo<TContent, TArea>>
     {
         /**
          * Writes the bytes for the object to the output.
@@ -426,7 +426,7 @@ public class KryoTests
         {
             String message = input.readString();
             long timestampEpochMillis = input.readVarLong(true);
-            ByteArrayArea snapshot = kryo.readObject(input, ByteArrayHashMapArea.class);
+            ByteArrayAreaAPI snapshot = kryo.readObject(input, ByteArrayHashMapArea.class);
             MemoryCommit firstParent = kryo.readObjectOrNull(input, MemoryCommit.class);
             MemoryCommit[] memoryCommits = kryo.readObjectOrNull(input, MemoryCommit[].class);
 
