@@ -56,6 +56,13 @@ public class NanoJGitAnalyzer
          * "oneline" format, suitable for output in a single line display.
          */
         public static final String COMMIT_MESSAGE_SHORT_PATH = COMMIT_MESSAGE_PATH + "/short";
+
+        /**
+         * The SHA1 hash for the commit.
+         * It is in lower case hexadecimal.
+         */
+        public static final String COMMIT_SHA1_PATH = "/SHA1";
+
     }
 
     /**
@@ -63,11 +70,12 @@ public class NanoJGitAnalyzer
      * The git repo has to already be passed in and the caller is responsible for closing it appropriately.
      *
      * @param git The git repo to load into memory. This git repo should already be open and it it up to the caller to close git appropriately.
+     * @param commitModifier The modifier to run before making the memory commit.
      * @return The in-memory nano repository with the contents of the entire git repository.
      * @throws IOException     If files could not be opened or read correctly.
      * @throws GitAPIException If there were errors involved with accessing the Git repository.
      */
-    public static MemoryNanoRepo createNanoRepoFromGitRepo(Git git) throws IOException, GitAPIException
+    public static MemoryNanoRepo createNanoRepoFromGitRepo(Git git, CommitModifier commitModifier) throws IOException, GitAPIException
     {
         // Create a simulated clock so that we can override timestamps for commits:
         SimulatedInstantClock clock = new SimulatedInstantClock();
@@ -259,7 +267,14 @@ public class NanoJGitAnalyzer
                     .and(GitCommitTagPaths.AUTHOR_EMAIL_PATH, authorIdent.getEmailAddress())
                     .and(GitCommitTagPaths.COMMIT_MESSAGE_PATH, revCommit.getFullMessage())
                     .and(GitCommitTagPaths.COMMIT_MESSAGE_SHORT_PATH, revCommit.getShortMessage())
+                    .and(GitCommitTagPaths.COMMIT_SHA1_PATH, revCommit.getName())
                     ;
+
+                // Provide the opportunity for the caller to modify the data for the commit:
+                if (commitModifier != null)
+                {
+                    commitModifier.modifyCommit(revCommit, revCommit.getName(), commitTags, contentArea);
+                }
 
                 // Commit the content area to nano version control:
                 // NOTE: We separate the API into different scenarios for performance.
@@ -377,6 +392,22 @@ public class NanoJGitAnalyzer
     }
 
     /**
+     * This modifies a commit before it is saved to the nano repo.
+     */
+    @FunctionalInterface
+    public interface CommitModifier
+    {
+
+        /**
+         * @param revCommit The revision that this commit was created from.
+         * @param commitSHA1           The commit hash in SHA-1 form, in lower case hexadecimal.
+         * @param commitTags           The commit tags to populate for the commit.
+         * @param contentArea          The content area that has the content pre-populated. You have a chance to modify the content area before the commit is created.
+         */
+        void modifyCommit(RevCommit revCommit, String commitSHA1, CommitTags commitTags, ByteArrayHashMapArea contentArea);
+    }
+
+    /**
      * This creates a {@link MemoryNanoRepo} for the entire contents of the given git repo.
      * The git repo has to already be passed in and the caller is responsible for closing it appropriately.
      *
@@ -391,7 +422,7 @@ public class NanoJGitAnalyzer
         try (Git git = Git.open(existingGitWorkingDirectoryPath.toFile()))
         {
             // Read in the whole Git repo into memory:
-            return createNanoRepoFromGitRepo(git);
+            return createNanoRepoFromGitRepo(git, null);
         }
     }
 
@@ -416,7 +447,7 @@ public class NanoJGitAnalyzer
         )
         {
             // Read in the whole Git repo into memory:
-            return createNanoRepoFromGitRepo(git);
+            return createNanoRepoFromGitRepo(git, null);
         }
     }
 }
