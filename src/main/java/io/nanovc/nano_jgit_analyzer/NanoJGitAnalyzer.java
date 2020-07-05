@@ -1,11 +1,9 @@
 package io.nanovc.nano_jgit_analyzer;
 
-import io.nanovc.ClockBase;
 import io.nanovc.CommitTags;
 import io.nanovc.areas.ByteArrayHashMapArea;
 import io.nanovc.memory.MemoryCommit;
 import io.nanovc.memory.MemoryNanoRepo;
-import io.nanovc.timestamps.InstantTimestamp;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
@@ -419,27 +417,6 @@ public class NanoJGitAnalyzer
         {
             // Read in the whole Git repo into memory:
             return createNanoRepoFromGitRepo(git);
-        }
-    }
-
-    /**
-     * This is a simulated clock that allows us to override timestamps.
-     */
-    static class SimulatedInstantClock extends ClockBase<InstantTimestamp>
-    {
-        /**
-         * The override value to use for the current instant in time.
-         */
-        public Instant nowOverride = Instant.now();
-
-        /**
-         * Creates a timestamp for the current instant in time.
-         *
-         * @return A new timestamp for the current instant in time.
-         */
-        @Override public InstantTimestamp now()
-        {
-            return new InstantTimestamp(this.nowOverride);
         }
     }
 }

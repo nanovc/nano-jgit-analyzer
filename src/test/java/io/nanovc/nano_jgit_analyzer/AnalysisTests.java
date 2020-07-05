@@ -43,27 +43,6 @@ public class AnalysisTests
         }
     }
 
-    /**
-     * This is a simulated clock that allows us to override timestamps.
-     */
-    static class SimulatedInstantClock extends ClockBase<InstantTimestamp>
-    {
-        /**
-         * The override value to use for the current instant in time.
-         */
-        public Instant nowOverride = Instant.now();
-
-        /**
-         * Creates a timestamp for the current instant in time.
-         *
-         * @return A new timestamp for the current instant in time.
-         */
-        @Override public InstantTimestamp now()
-        {
-            return new InstantTimestamp(this.nowOverride);
-        }
-    }
-
     static class Commit
     {
         public String id;

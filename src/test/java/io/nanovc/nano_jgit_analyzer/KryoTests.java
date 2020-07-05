@@ -7,7 +7,10 @@ import com.esotericsoftware.kryo.io.Output;
 import io.nanovc.*;
 import io.nanovc.areas.ByteArrayAreaAPI;
 import io.nanovc.areas.ByteArrayHashMapArea;
+import io.nanovc.areas.StringAreaAPI;
+import io.nanovc.areas.StringLinkedHashMapArea;
 import io.nanovc.content.ByteArrayContent;
+import io.nanovc.content.StringContent;
 import io.nanovc.junit.TestDirectory;
 import io.nanovc.junit.TestDirectoryExtension;
 import io.nanovc.memory.*;
@@ -161,6 +164,8 @@ public class KryoTests
         kryo.register(byte[].class);
         kryo.register(MemoryCommit[].class);
         kryo.register(ByteArrayHashMapArea.class, new ByteArrayHashMapAreaSerializer());
+        kryo.register(StringLinkedHashMapArea.class, new StringLinkedHashMapAreaSerializer());
+        kryo.register(CommitTags.class, new StringLinkedHashMapAreaSerializer());
         kryo.register(MemoryCommit.class, new MemoryCommitSerializer());
         kryo.register(MemoryRepo.class, new MemoryRepoSerializer<ByteArrayContent, ByteArrayHashMapArea>());
         kryo.register(MemoryNanoRepo.class, new MemoryRepoSerializer<ByteArrayContent, ByteArrayHashMapArea>());
@@ -405,6 +410,7 @@ public class KryoTests
         {
             output.writeString(object.message);
             output.writeVarLong(object.timestamp.getInstant().toEpochMilli(), true);
+            kryo.writeObject(output, object.commitTags);
             kryo.writeObject(output, object.snapshot);
             kryo.writeObjectOrNull(output, object.firstParent, MemoryCommit.class);
             kryo.writeObjectOrNull(output, object.otherParents == null ? null : object.otherParents.toArray(), MemoryCommit[].class);
@@ -426,6 +432,7 @@ public class KryoTests
         {
             String message = input.readString();
             long timestampEpochMillis = input.readVarLong(true);
+            StringAreaAPI commitTags = kryo.readObject(input, StringLinkedHashMapArea.class);
             ByteArrayAreaAPI snapshot = kryo.readObject(input, ByteArrayHashMapArea.class);
             MemoryCommit firstParent = kryo.readObjectOrNull(input, MemoryCommit.class);
             MemoryCommit[] memoryCommits = kryo.readObjectOrNull(input, MemoryCommit[].class);
@@ -433,6 +440,7 @@ public class KryoTests
             MemoryCommit memoryCommit = new MemoryCommit();
             memoryCommit.message = message;
             memoryCommit.timestamp = new InstantTimestamp(Instant.ofEpochMilli(timestampEpochMillis));
+            memoryCommit.commitTags = commitTags;
             memoryCommit.snapshot = snapshot;
             memoryCommit.firstParent = firstParent;
             memoryCommit.otherParents = memoryCommits == null ? null : Arrays.asList(memoryCommits);
@@ -504,6 +512,72 @@ public class KryoTests
 
                 // Create the entry:
                 contentArea.putContent(RepoPath.at(path), content);
+            }
+
+            return contentArea;
+        }
+    }
+
+    public static class StringLinkedHashMapAreaSerializer extends Serializer<StringLinkedHashMapArea>
+    {
+        /**
+         * Writes the bytes for the object to the output.
+         * <p>
+         * This method should not be called directly, instead this serializer can be passed to {@link Kryo} write methods that accept a
+         * serialier.
+         *
+         * @param object May be null if {@link #getAcceptsNull()} is true.
+         */
+        @Override public void write(Kryo kryo, Output output, StringLinkedHashMapArea object)
+        {
+            // Write the number of entries:
+            output.writeVarInt(object.size(), true);
+
+            // Write each entry:
+            for (AreaEntry<StringContent> areaEntry : object)
+            {
+                // Write the path:
+                // NOTE: We allow kryo to reference paths that we have written before to save space:
+                kryo.writeObject(output, areaEntry.path.path);
+
+                // Write the content:
+                // NOTE: We allow kryo to reference commit tags that we have written before to save space:
+                kryo.writeObject(output, areaEntry.content.value);
+            }
+        }
+
+        /**
+         * Reads bytes and returns a new object of the specified concrete type.
+         * <p>
+         * Before Kryo can be used to read child objects, {@link Kryo#reference(Object)} must be called with the parent object to
+         * ensure it can be referenced by the child objects. Any serializer that uses {@link Kryo} to read a child object may need to
+         * be reentrant.
+         * <p>
+         * This method should not be called directly, instead this serializer can be passed to {@link Kryo} read methods that accept a
+         * serialier.
+         *
+         * @return May be null if {@link #getAcceptsNull()} is true.
+         */
+        @Override public StringLinkedHashMapArea read(Kryo kryo, Input input, Class<? extends StringLinkedHashMapArea> type)
+        {
+            // Read the number of entries:
+            int entryCount = input.readVarInt(true);
+
+            // Create the content area:
+            StringLinkedHashMapArea contentArea = new StringLinkedHashMapArea();
+
+            // Get each entry:
+            for (int i = 0; i < entryCount; i++)
+            {
+                // Read the path:
+                // NOTE: We allow Kryo to resolve references to paths to save space.
+                String path = kryo.readObject(input, String.class);
+
+                // Read the bytes for the content, allowing kryo to resolve references:
+                String value = kryo.readObject(input, String.class);
+
+                // Create the entry:
+                contentArea.putString(RepoPath.at(path), value);
             }
 
             return contentArea;
