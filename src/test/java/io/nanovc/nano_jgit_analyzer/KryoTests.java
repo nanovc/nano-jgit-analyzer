@@ -127,7 +127,14 @@ public class KryoTests
         nanoStart = System.nanoTime();
 
         // Create a Nano Repo from the one on disk:
-        MemoryNanoRepo nanoRepo = NanoJGitAnalyzer.createNanoRepoFromGitFilePath(pathToHugeExistingGitRepoOnDisk);
+        MemoryNanoRepo nanoRepo = NanoJGitAnalyzer.createNanoRepoFromGitFilePath(
+            pathToHugeExistingGitRepoOnDisk,
+            (revCommit, commitSHA1, commitTags, contentArea) ->
+            {
+                // Don't use the content area to save space. Just clear it:
+                // contentArea.clear();
+            }
+        );
 
         // Count the total number of commits in the repo:
         int totalCommits = nanoRepo.search(new SimpleSearchQueryDefinition(null, AllRepoCommitsExpression.allRepoCommits(), null)).getCommits().size();
@@ -249,6 +256,9 @@ public class KryoTests
             nanoEnd = System.nanoTime();
             nanoDuration = nanoEnd - nanoStart;
 
+            // Get the size of the saved repo:
+            totalBytes = Files.size(deflatePathToWriteTo);
+
             System.out.println("*** LOADING COMPRESSED ***");
             System.out.printf("Loading Repo from '%s'%n", deflatePathToWriteTo.toString());
             System.out.printf("Total Bytes: %,d%n", totalBytes);
@@ -273,6 +283,9 @@ public class KryoTests
             // End timing:
             nanoEnd = System.nanoTime();
             nanoDuration = nanoEnd - nanoStart;
+
+            // Get the size of the saved repo:
+            totalBytes = Files.size(pathToWriteTo);
 
             System.out.println("*** LOADING ***");
             System.out.printf("Loading Repo from '%s'%n", pathToWriteTo.toString());

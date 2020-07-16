@@ -418,11 +418,26 @@ public class NanoJGitAnalyzer
      */
     public static MemoryNanoRepo createNanoRepoFromGitFilePath(Path existingGitWorkingDirectoryPath) throws IOException, GitAPIException
     {
+        return createNanoRepoFromGitFilePath(existingGitWorkingDirectoryPath, null);
+    }
+
+    /**
+     * This creates a {@link MemoryNanoRepo} for the entire contents of the given git repo.
+     * The git repo has to already be passed in and the caller is responsible for closing it appropriately.
+     *
+     * @param existingGitWorkingDirectoryPath The path to an existing Git working directory to load.
+     * @param commitModifier The modifier to run before making the memory commit.
+     * @return The in-memory nano repository with the contents of the entire git repository.
+     * @throws IOException     If files could not be opened or read correctly.
+     * @throws GitAPIException If there were errors involved with accessing the Git repository.
+     */
+    public static MemoryNanoRepo createNanoRepoFromGitFilePath(Path existingGitWorkingDirectoryPath, CommitModifier commitModifier) throws IOException, GitAPIException
+    {
         // Open the git repository:
         try (Git git = Git.open(existingGitWorkingDirectoryPath.toFile()))
         {
             // Read in the whole Git repo into memory:
-            return createNanoRepoFromGitRepo(git, null);
+            return createNanoRepoFromGitRepo(git, commitModifier);
         }
     }
 
