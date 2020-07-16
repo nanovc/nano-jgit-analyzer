@@ -18,6 +18,7 @@ dependencies {
     implementation('com.esotericsoftware:kryo:5.0.0-RC6')
     implementation('com.fasterxml.jackson.core:jackson-databind:2.11.1')
     implementation('com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.11.1')
+    implementation('org.slf4j:slf4j-nop:1.7.2')
 
     testImplementation('org.junit.jupiter:junit-jupiter:5.6.2')
 }
