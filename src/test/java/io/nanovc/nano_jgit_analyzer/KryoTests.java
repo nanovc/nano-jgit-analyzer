@@ -119,7 +119,8 @@ public class KryoTests
         long nanoStart, nanoEnd, nanoDuration;
 
         // Set this to a repo that you already have checked out on disk:
-        Path pathToHugeExistingGitRepoOnDisk = Paths.get("/PATH/ToHuge/Repo");
+        //Path pathToHugeExistingGitRepoOnDisk = Paths.get("/PATH/ToHuge/Repo");
+        Path pathToHugeExistingGitRepoOnDisk = Paths.get("./");
 
         // Start timing:
         nanoStart = System.nanoTime();
