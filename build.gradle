@@ -9,10 +9,11 @@ repositories {
     mavenCentral()
     // The following reference is for cases when we release NanoVC and Maven Central hasn't Sync'ed yet.
     maven { url 'https://oss.sonatype.org/content/repositories/releases/' }
+    maven { url 'https://repo1.maven.org/maven2/' }
 }
 
 dependencies {
-    implementation('io.nanovc:nanovc-memory:0.0.6')
+    implementation('io.nanovc:nanovc-memory:0.0.7')
     implementation('org.eclipse.jgit:org.eclipse.jgit:5.7.0.202003110725-r')
     implementation('com.esotericsoftware:kryo:5.0.0-RC6')
     implementation('com.fasterxml.jackson.core:jackson-databind:2.11.1')
