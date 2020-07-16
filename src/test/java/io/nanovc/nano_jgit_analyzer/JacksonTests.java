@@ -169,7 +169,7 @@ public class JacksonTests
         // Create the nano repo:
         StringMemoryRepoHandler handler = new StringMemoryRepoHandler();
         SimulatedInstantClock clock = new SimulatedInstantClock();
-        handler.clock = clock;
+        handler.setClock(clock);
         clock.nowOverride = Instant.ofEpochSecond(1234567890);
 
         StringHashMapArea area = handler.createArea();
