@@ -34,6 +34,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
+import java.util.zip.*;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertIterableEquals;
@@ -177,7 +178,10 @@ public class KryoTests
         nanoStart = System.nanoTime();
 
         // Serialize the repo:
-        try(Output output = new Output(new FileOutputStream(pathToWriteTo.toFile())))
+        try(
+            FileOutputStream fileOutputStream = new FileOutputStream(pathToWriteTo.toFile());
+            Output output = new Output(fileOutputStream)
+        )
         {
             kryo.writeObject(output, repoToWrite);
         }
@@ -196,11 +200,73 @@ public class KryoTests
         System.out.printf("Throughput: %,d B/sec%n", totalBytes * 1000_000_000L / nanoDuration);
         System.out.println();
 
+
+        // Start timing:
+        nanoStart = System.nanoTime();
+
+        // Serialize the repo with compression:
+        // https://github.com/EsotericSoftware/kryo#compression-and-encryption
+        Path deflatePathToWriteTo = pathToWriteTo.resolveSibling(pathToWriteTo.getFileName().toString().replace(".bin", ".deflate.bin"));
+        try(
+            FileOutputStream fileOutputStream = new FileOutputStream(deflatePathToWriteTo.toFile());
+            DeflaterOutputStream deflaterOutputStream = new DeflaterOutputStream(fileOutputStream, new Deflater(Deflater.BEST_COMPRESSION));
+            Output output = new Output(deflaterOutputStream);
+        )
+        {
+            kryo.writeObject(output, repoToWrite);
+        }
+
+
+        // End timing:
+        nanoEnd = System.nanoTime();
+        nanoDuration = nanoEnd - nanoStart;
+
+        // Get the size of the saved repo:
+        totalBytes = Files.size(deflatePathToWriteTo);
+
+        System.out.println("*** SAVING COMPRESSED ***");
+        System.out.printf("Saving Repo to '%s'%n", deflatePathToWriteTo.toString());
+        System.out.printf("Total Bytes: %,d%n", totalBytes);
+        System.out.printf("Duration: %,dns = %,dms%n", nanoDuration, nanoDuration / 1000_000L);
+        System.out.printf("Throughput: %,d B/sec%n", totalBytes * 1000_000_000L / nanoDuration);
+        System.out.println();
+
+
+
         // Start timing:
         nanoStart = System.nanoTime();
 
         // Deserialize the repo:
-        try (Input input = new Input(new FileInputStream(pathToWriteTo.toFile())))
+        try (
+            FileInputStream fileInputStream = new FileInputStream(deflatePathToWriteTo.toFile());
+            InflaterInputStream inflaterInputStream = new InflaterInputStream(fileInputStream);
+            Input input = new Input(inflaterInputStream)
+        )
+        {
+            MemoryRepo<ByteArrayContent, ByteArrayHashMapArea> repoFromDisk = kryo.readObject(input, MemoryRepo.class);
+
+            // End timing:
+            nanoEnd = System.nanoTime();
+            nanoDuration = nanoEnd - nanoStart;
+
+            System.out.println("*** LOADING COMPRESSED ***");
+            System.out.printf("Loading Repo from '%s'%n", deflatePathToWriteTo.toString());
+            System.out.printf("Total Bytes: %,d%n", totalBytes);
+            System.out.printf("Duration: %,dns = %,dms%n", nanoDuration, nanoDuration / 1000_000L);
+            System.out.printf("Throughput: %,d B/sec%n", totalBytes * 1_000_000_000L / nanoDuration);
+            System.out.println();
+        }
+
+
+
+        // Start timing:
+        nanoStart = System.nanoTime();
+
+        // Deserialize the repo:
+        try (
+            FileInputStream fileInputStream = new FileInputStream(pathToWriteTo.toFile());
+            Input input = new Input(fileInputStream)
+        )
         {
             MemoryRepo<ByteArrayContent, ByteArrayHashMapArea> repoFromDisk = kryo.readObject(input, MemoryRepo.class);
 
